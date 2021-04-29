@@ -44,9 +44,9 @@ done
 if [[ "$REBASEABLE" != "true" ]] ; then
 	curl -X POST -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
 		"${URI}/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-		-d "{\"body\": \"Failed to rebase after 5 attempts.\"}"
+		-d "{\"body\": \"GitHub doesn't think that the PR is rebaseable!\"}"
 
-	echo "Failed to rebase after 5 attempts."
+	echo "GitHub doesn't think that the PR is rebaseable!"
 	echo "API response: $pr_resp"
 	exit 1
 fi
