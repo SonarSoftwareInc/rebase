@@ -21,8 +21,39 @@ URI=https://api.github.com
 API_HEADER="Accept: application/vnd.github.v3+json"
 AUTH_HEADER="Authorization: token $GITHUB_TOKEN"
 
-pr_resp=$(curl -X GET -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+n=0
+until [ "$n" -ge 5 ]
+do
+	pr_resp=$(curl -X GET -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
+	          "${URI}/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+
+	rebaseable=$(echo "$pr_resp" | jq -r .rebaseable)
+
+	if [[ "$rebaseable" == "true" ]]; then
+		break
+	elif [[ "$rebaseable" == "false" ]]; then
+		curl -X POST -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
+			"${URI}/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+			-d "{\"body\": \"GitHub doesn't think that the PR is rebaseable!\"}"
+
+		echo "GitHub doesn't think that the PR is rebaseable!"
+		echo "API response: $pr_resp"
+		exit 1
+	fi
+
+	n=$((n+1))
+	sleep 15
+done
+
+if [ "$n" -ge 5 ]
+	curl -X POST -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
+		"${URI}/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+		-d "{\"body\": \"Failed to rebase after 5 attempts.\"}"
+
+	echo "Failed to rebase after 5 attempts."
+	echo "API response: $pr_resp"
+	exit 1
+done
 
 BASE_REPO=$(echo "$pr_resp" | jq -r .base.repo.full_name)
 BASE_BRANCH=$(echo "$pr_resp" | jq -r .base.ref)
@@ -41,12 +72,6 @@ USER_NAME="${USER_NAME} (Rebase PR Action)"
 USER_EMAIL=$(echo "$user_resp" | jq -r ".email")
 if [[ "$USER_EMAIL" == "null" ]]; then
 	USER_EMAIL="$USER_LOGIN@users.noreply.github.com"
-fi
-
-if [[ "$(echo "$pr_resp" | jq -r .rebaseable)" != "true" ]]; then
-	echo "GitHub doesn't think that the PR is rebaseable!"
-	echo "API response: $pr_resp"
-	exit 1
 fi
 
 if [[ -z "$BASE_BRANCH" ]]; then
