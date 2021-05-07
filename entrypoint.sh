@@ -21,31 +21,24 @@ URI=https://api.github.com
 API_HEADER="Accept: application/vnd.github.v3+json"
 AUTH_HEADER="Authorization: token $GITHUB_TOKEN"
 
-n=0
-until [ "$n" -ge 5 ]
-do
+MAX_RETRIES=${MAX_RETRIES:-6}
+RETRY_INTERVAL=${RETRY_INTERVAL:-10}
+REBASEABLE=""
+pr_resp=""
+for ((i = 0 ; i < $MAX_RETRIES ; i++)); do
 	pr_resp=$(curl -X GET -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-	          "${URI}/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
-
-	rebaseable=$(echo "$pr_resp" | jq -r .rebaseable)
-
-	if [[ "$rebaseable" == "true" ]]; then
+		"${URI}/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+	REBASEABLE=$(echo "$pr_resp" | jq -r .rebaseable)
+	if [[ "$REBASEABLE" == "null" ]]; then
+		echo "The PR is not ready to rebase, retry after $RETRY_INTERVAL seconds"
+		sleep $RETRY_INTERVAL
+		continue
+	else
 		break
-	elif [[ "$rebaseable" == "false" ]]; then
-		curl -X POST -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-			"${URI}/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-			-d "{\"body\": \"GitHub doesn't think that the PR is rebaseable!\"}"
-
-		echo "GitHub doesn't think that the PR is rebaseable!"
-		echo "API response: $pr_resp"
-		exit 1
 	fi
-
-	n=$((n+1))
-	sleep 15
 done
 
-if [ "$n" -ge 5 ]
+if [[ "$REBASEABLE" != "true" ]] ; then
 	curl -X POST -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
 		"${URI}/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
 		-d "{\"body\": \"Failed to rebase after 5 attempts.\"}"
@@ -53,7 +46,7 @@ if [ "$n" -ge 5 ]
 	echo "Failed to rebase after 5 attempts."
 	echo "API response: $pr_resp"
 	exit 1
-done
+fi
 
 BASE_REPO=$(echo "$pr_resp" | jq -r .base.repo.full_name)
 BASE_BRANCH=$(echo "$pr_resp" | jq -r .base.ref)
@@ -61,7 +54,7 @@ BASE_BRANCH=$(echo "$pr_resp" | jq -r .base.ref)
 USER_LOGIN=$(jq -r ".comment.user.login" "$GITHUB_EVENT_PATH")
 
 user_resp=$(curl -X GET -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-            "${URI}/users/${USER_LOGIN}")
+	"${URI}/users/${USER_LOGIN}")
 
 USER_NAME=$(echo "$user_resp" | jq -r ".name")
 if [[ "$USER_NAME" == "null" ]]; then
